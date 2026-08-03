@@ -31,7 +31,8 @@ MODULE input_cp2k_qs
         do_pwgrid_ns_halfspace, do_pwgrid_spherical, do_s2_constraint, do_s2_restraint, &
         do_spin_density, gapw_1c_large, gapw_1c_medium, gapw_1c_orb, gapw_1c_small, &
         gapw_1c_very_large, gaussian, numerical, slater, wfi_aspc_nr, wfi_frozen_method_nr, &
-        wfi_gext_proj_nr, wfi_gext_proj_qtr_nr, wfi_linear_p_method_nr, wfi_linear_ps_method_nr, &
+        wfi_gext_proj_nr, wfi_gext_proj_qtr_nr, wfi_gext_nr, wfi_gext_qtr_nr, &
+        wfi_linear_p_method_nr, wfi_linear_ps_method_nr, &
         wfi_linear_wf_method_nr, wfi_ps_method_nr, wfi_use_guess_method_nr, &
         wfi_use_prev_p_method_nr, wfi_use_prev_rho_r_method_nr, wfi_use_prev_wf_method_nr
    USE input_cp2k_distribution,         ONLY: create_distribution_section
@@ -421,7 +422,7 @@ CONTAINS
          usage="EXTRAPOLATION PS", &
          enum_c_vals=s2a("USE_GUESS", "USE_PREV_P", "USE_PREV_RHO_R", "LINEAR_WF", &
                          "LINEAR_P", "LINEAR_PS", "USE_PREV_WF", "PS", "FROZEN", "ASPC", &
-                         "GEXT_PROJ", "GEXT_PROJ_QTR"), &
+                         "GEXT_PROJ", "GEXT_PROJ_QTR", "GEXT", "GEXT_QTR"), &
          enum_desc=s2a( &
          "Use the method specified with SCF_GUESS, i.e. no extrapolation", &
          "Use the previous density matrix", &
@@ -434,7 +435,9 @@ CONTAINS
          "Frozen ... (not available for k-points)", &
          "Always stable predictor corrector, similar to PS, but going for MD stability instead of initial guess accuracy.", &
          "GExt extrapolation for the density matrix times the overlap matrix.", &
-         "Quasi time reversible GExt extrapolation for the density matrix times the overlap matrix."), &
+         "Quasi time reversible GExt extrapolation for the density matrix times the overlap matrix.", &
+         "GExt extrapolation for the coefficient matrix.", &
+         "Quasi time reversible GExt extrapolation for the coefficient matrix."), &
          enum_i_vals=[ &
          wfi_use_guess_method_nr, &
          wfi_use_prev_p_method_nr, &
@@ -447,7 +450,9 @@ CONTAINS
          wfi_frozen_method_nr, &
          wfi_aspc_nr, &
          wfi_gext_proj_nr, &
-         wfi_gext_proj_qtr_nr], &
+         wfi_gext_proj_qtr_nr, &
+         wfi_gext_nr, &
+         wfi_gext_qtr_nr], &
          default_i_val=wfi_aspc_nr)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)

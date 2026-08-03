@@ -255,7 +255,9 @@ MODULE input_constants
                                                wfi_frozen_method_nr = 8, &
                                                wfi_aspc_nr = 9, &
                                                wfi_gext_proj_nr = 10, &
-                                               wfi_gext_proj_qtr_nr = 11
+                                               wfi_gext_proj_qtr_nr = 11, &
+                                               wfi_gext_nr = 12, &
+                                               wfi_gext_qtr_nr = 13
 
    INTEGER, PARAMETER, PUBLIC               :: do_method_undef = 0, &
                                                do_method_gapw = 1, &

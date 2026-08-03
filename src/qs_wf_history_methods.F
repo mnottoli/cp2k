@@ -51,6 +51,7 @@ MODULE qs_wf_history_methods
                                               dbcsr_deallocate_matrix_set
    USE cp_fm_basic_linalg,              ONLY: cp_fm_scale,&
                                               cp_fm_scale_and_add
+   USE cp_fm_diag,                      ONLY: cp_fm_svd
    USE cp_fm_pool_types,                ONLY: cp_fm_pool_p_type,&
                                               cp_fm_pool_type,&
                                               fm_pool_create_fm,&
@@ -72,9 +73,9 @@ MODULE qs_wf_history_methods
                                               low_print_level
    USE input_constants,                 ONLY: &
         wfi_aspc_nr, wfi_frozen_method_nr, wfi_gext_proj_nr, wfi_gext_proj_qtr_nr, &
-        wfi_linear_p_method_nr, wfi_linear_ps_method_nr, wfi_linear_wf_method_nr, &
-        wfi_ps_method_nr, wfi_use_guess_method_nr, wfi_use_prev_p_method_nr, &
-        wfi_use_prev_rho_r_method_nr, wfi_use_prev_wf_method_nr
+        wfi_gext_nr, wfi_gext_qtr_nr, wfi_linear_p_method_nr, wfi_linear_ps_method_nr, &
+        wfi_linear_wf_method_nr, wfi_ps_method_nr, wfi_use_guess_method_nr, &
+        wfi_use_prev_p_method_nr, wfi_use_prev_rho_r_method_nr, wfi_use_prev_wf_method_nr
    USE kinds,                           ONLY: dp
    USE kpoint_methods,                  ONLY: kpoint_density_matrices,&
                                               kpoint_density_transform,&
@@ -574,6 +575,18 @@ CONTAINS
          wf_history%store_wf_kp = .TRUE.
          wf_history%store_overlap = .TRUE.
          wf_history%store_overlap_kp = .TRUE.
+      CASE (wfi_gext_nr)
+         wf_history%memory_depth = extrapolation_order
+         wf_history%store_wf = .TRUE.
+         wf_history%store_wf_kp = .TRUE.
+         wf_history%store_overlap = .TRUE.
+         wf_history%store_overlap_kp = .TRUE.
+      CASE (wfi_gext_qtr_nr)
+         wf_history%memory_depth = extrapolation_order
+         wf_history%store_wf = .TRUE.
+         wf_history%store_wf_kp = .TRUE.
+         wf_history%store_overlap = .TRUE.
+         wf_history%store_overlap_kp = .TRUE.
       CASE default
          CALL cp_abort(__LOCATION__, &
                        "Unknown interpolation method: "// &
@@ -674,6 +687,10 @@ CONTAINS
          res = "GEXT_PROJ"
       CASE (wfi_gext_proj_qtr_nr)
          res = "GEXT_PROJ_QTR"
+      CASE (wfi_gext_nr)
+         res = "GEXT"
+      CASE (wfi_gext_qtr_nr)
+         res = "GEXT_QTR"
       CASE default
          CALL cp_abort(__LOCATION__, &
                        "Unknown interpolation method: "// &
@@ -694,6 +711,7 @@ CONTAINS
 !>      02.2003 created [fawzi]
 !>      11.2003 Joost VandeVondele : Implemented Nth order PS extrapolation
 !>      04.2026 Michele Nottoli : Added GEXT_PROJ and GEXT_PROJ_QTR extrapolations
+!>      08.2026 Michele Nottoli : Added GEXT and GEXT_QTR extrapolations
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE wfi_extrapolate(wf_history, qs_env, dt, extrapolation_method_nr, &
@@ -1146,6 +1164,7 @@ CONTAINS
             CALL wfi_extrapolate_gext_proj_kp(wf_history, qs_env, nvec, io_unit, print_level)
          ELSE
 
+
             ! figure out the actual number of vectors to use in the extrapolation:
             nvec = MIN(wf_history%memory_depth, wf_history%snapshot_count)
             IF (nvec >= wf_history%memory_depth) THEN
@@ -1163,6 +1182,7 @@ CONTAINS
             END IF
             CPASSERT(nvec > 0)
 
+
             ! get the coefficients for the fitting
             ALLOCATE (coeffs(nvec))
             NULLIFY (matrix_s)
@@ -1173,6 +1193,7 @@ CONTAINS
             my_orthogonal_wf = .TRUE.
             CALL qs_rho_get(rho, rho_ao=rho_ao)
             DO ispin = 1, SIZE(mos)
+
                NULLIFY (mo_coeff, matrix_struct, matrix_struct_new)
                CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
                CALL cp_fm_get_info(mo_coeff, &
@@ -1208,6 +1229,7 @@ CONTAINS
             END DO
             CALL qs_rho_update_rho(rho, qs_env=qs_env)
             CALL qs_ks_did_change(qs_env%ks_env, rho_changed=.TRUE.)
+
 
             DEALLOCATE (coeffs)
 
@@ -1286,6 +1308,82 @@ CONTAINS
             DEALLOCATE (coeffs)
 
          END IF
+
+      CASE (wfi_gext_nr)
+         IF (do_kpoints) THEN
+            CALL cp_abort(__LOCATION__, "GEXT and GEXT_QTR do not support yet kpoints")
+         END IF
+
+         ! figure out the actual number of vectors to use in the extrapolation:
+         nvec = MIN(wf_history%memory_depth, wf_history%snapshot_count)
+         IF (nvec >= wf_history%memory_depth) THEN
+            IF ((qs_env%scf_control%max_scf_hist /= 0) .AND. &
+                (qs_env%scf_control%eps_scf_hist /= 0)) THEN
+               qs_env%scf_control%max_scf = qs_env%scf_control%max_scf_hist
+               qs_env%scf_control%eps_scf = qs_env%scf_control%eps_scf_hist
+               qs_env%scf_control%outer_scf%have_scf = .FALSE.
+            ELSE IF (qs_env%scf_control%max_scf_hist /= 0) THEN
+               qs_env%scf_control%max_scf = qs_env%scf_control%max_scf_hist
+               qs_env%scf_control%outer_scf%have_scf = .FALSE.
+            ELSE IF (qs_env%scf_control%eps_scf_hist /= 0) THEN
+               qs_env%scf_control%eps_scf = qs_env%scf_control%eps_scf_hist
+            END IF
+         END IF
+         CPASSERT(nvec > 0)
+
+         ! get the coefficients for the fitting
+         ALLOCATE (coeffs(nvec))
+         NULLIFY (matrix_s)
+         CALL get_qs_env(qs_env, matrix_s=matrix_s)
+         CALL diff_fitting(wf_history, matrix_s(1)%matrix, coeffs, nvec, &
+                           1e-4_dp, io_unit, print_level)
+
+         my_orthogonal_wf = .TRUE.
+         CALL qs_rho_get(rho, rho_ao=rho_ao)
+         DO ispin = 1, SIZE(mos)
+
+            !NULLIFY (mo_coeff, matrix_struct, matrix_struct_new)
+
+            NULLIFY (mo_coeff, matrix_struct)
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
+            CALL cp_fm_get_info(mo_coeff, &
+                                nrow_global=n, &
+                                ncol_global=k, &
+                                matrix_struct=matrix_struct)
+
+            CALL cp_fm_create(fm_tmp, matrix_struct)
+            !CALL cp_fm_struct_create(matrix_struct_new, &
+            !                         template_fmstruct=matrix_struct, &
+            !                         nrow_global=k, &
+            !                         ncol_global=k)
+            !CALL cp_fm_create(csc, matrix_struct_new)
+            !CALL cp_fm_struct_release(matrix_struct_new)
+
+            t1_state => wfi_get_snapshot(wf_history, wf_index=1)
+
+            ! do the linear combination of previous transformed coefficient
+            ! matrices
+            CALL cp_fm_set_all(mo_coeff, 0.0_dp)
+            DO i = 1, nvec
+               t0_state => wfi_get_snapshot(wf_history, wf_index=i)
+               CALL cp_dbcsr_sm_fm_multiply(t1_state%overlap, t0_state%wf(ispin), fm_tmp, k)
+               CALL gext_orbital_transform(t0_state%wf(ispin), t1_state%wf(ispin), &
+                  t1_state%overlap, fm_tmp)
+               CALL cp_fm_scale_and_add(1.0_dp, mo_coeff, coeffs(i), fm_tmp)
+            END DO
+            !CALL cp_fm_release(csc)
+            CALL cp_fm_release(fm_tmp)
+            CALL reorthogonalize_vectors(qs_env, &
+                                         v_matrix=mo_coeff, &
+                                         n_col=k)
+            CALL calculate_density_matrix(mo_set=mos(ispin), &
+                                          density_matrix=rho_ao(ispin)%matrix)
+         END DO
+         CALL qs_rho_update_rho(rho, qs_env=qs_env)
+         CALL qs_ks_did_change(qs_env%ks_env, rho_changed=.TRUE.)
+
+
+         DEALLOCATE (coeffs)
 
       CASE default
          CALL cp_abort(__LOCATION__, &
@@ -2816,5 +2914,73 @@ CONTAINS
       DEALLOCATE (A, b)
 
    END SUBROUTINE tr_fitting
+
+   SUBROUTINE gext_orbital_transform(mo_coeff, mo_coeff_ref, overlap_ref, transf_mo_coeff)
+      TYPE(cp_fm_type), INTENT(IN) :: mo_coeff, mo_coeff_ref
+      TYPE(dbcsr_type), INTENT(IN) :: overlap_ref
+      TYPE(cp_fm_type), INTENT(INOUT) :: transf_mo_coeff
+
+      TYPE(cp_fm_struct_type), POINTER :: matrix_struct, matrix_struct_new
+      INTEGER :: n, k, lwork, info
+      TYPE(cp_fm_type) :: m, u, vt
+      !REAL(KIND=dp), ALLOCATABLE, DIMENSION(:) :: s, work
+      REAL(KIND=dp), POINTER, DIMENSION(:) :: s
+
+      ! allocate the necessary temporary arrays
+      NULLIFY (matrix_struct)
+      CALL cp_fm_get_info(mo_coeff, nrow_global=n, ncol_global=k, matrix_struct=matrix_struct)
+
+
+      CALL cp_fm_struct_create(matrix_struct_new, &
+                               template_fmstruct=matrix_struct, &
+                               nrow_global=k, &
+                               ncol_global=k)
+      CALL cp_fm_create(m, matrix_struct_new)
+      CALL cp_fm_create(u, matrix_struct_new)
+      CALL cp_fm_create(vt, matrix_struct_new)
+      CALL cp_fm_struct_release(matrix_struct_new)
+
+      NULLIFY(s)
+      ALLOCATE(s(k))
+
+      ! Assemble M = C^T S_ref C_ref
+      CALL cp_dbcsr_sm_fm_multiply(overlap_ref, mo_coeff_ref, transf_mo_coeff, k)
+      CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mo_coeff, transf_mo_coeff, 0.0_dp, m)
+
+      ! query the optimal size for the SVD workspace
+      !lwork = -1
+      !CALL dgesvd('A', 'A', k, k, m%local_data, k, s, u%local_data, k, &
+      !   vt%local_data, k, work, lwork, info)
+      !if (info /= 0) THEN
+      !   CPABORT("DGESVD memory query failed.")
+      !END IF
+      !lwork = work(1)
+      !DEALLOCATE(work)
+
+      !! do the svd
+      !ALLOCATE(work(lwork))
+      !CALL dgesvd('A', 'A', k, k, m%local_data, k, s, u%local_data, k, &
+      !   vt%local_data, k, work, lwork, info)
+      !if (info /= 0) THEN
+      !   CPABORT("DGESVD failed.")
+      !END IF
+
+      CALL cp_fm_svd(m, u, vt, s, info)
+      if (info /= 0) THEN
+         CPABORT("DGESVD failed.")
+      END IF
+
+      ! compute the transformed coefficient matrix as
+      ! C' = C U V^T
+      CALL parallel_gemm('N', 'N', k, k, k, 1.0_dp, u, vt, 0.0_dp, m)
+      CALL parallel_gemm('N', 'N', n, k, k, 1.0_dp, mo_coeff, m, 0.0_dp, transf_mo_coeff)
+
+      ! deallocate the temporary storage
+      CALL cp_fm_release(m)
+      CALL cp_fm_release(u)
+      CALL cp_fm_release(vt)
+      DEALLOCATE(s)
+
+   END SUBROUTINE gext_orbital_transform
 
 END MODULE qs_wf_history_methods
