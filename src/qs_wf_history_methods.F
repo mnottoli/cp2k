@@ -1342,36 +1342,28 @@ CONTAINS
          CALL qs_rho_get(rho, rho_ao=rho_ao)
          DO ispin = 1, SIZE(mos)
 
-            !NULLIFY (mo_coeff, matrix_struct, matrix_struct_new)
-
             NULLIFY (mo_coeff, matrix_struct)
             CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
             CALL cp_fm_get_info(mo_coeff, &
                                 nrow_global=n, &
                                 ncol_global=k, &
                                 matrix_struct=matrix_struct)
-
             CALL cp_fm_create(fm_tmp, matrix_struct)
-            !CALL cp_fm_struct_create(matrix_struct_new, &
-            !                         template_fmstruct=matrix_struct, &
-            !                         nrow_global=k, &
-            !                         ncol_global=k)
-            !CALL cp_fm_create(csc, matrix_struct_new)
-            !CALL cp_fm_struct_release(matrix_struct_new)
 
+            ! reference (previous) state
             t1_state => wfi_get_snapshot(wf_history, wf_index=1)
 
             ! do the linear combination of previous transformed coefficient
             ! matrices
             CALL cp_fm_set_all(mo_coeff, 0.0_dp)
-            DO i = 1, nvec
+            CALL cp_fm_scale_and_add(1.0_dp, mo_coeff, coeffs(1), t1_state%wf(ispin))
+
+            DO i = 2, nvec
                t0_state => wfi_get_snapshot(wf_history, wf_index=i)
-               CALL cp_dbcsr_sm_fm_multiply(t1_state%overlap, t0_state%wf(ispin), fm_tmp, k)
                CALL gext_orbital_transform(t0_state%wf(ispin), t1_state%wf(ispin), &
                   t1_state%overlap, fm_tmp)
                CALL cp_fm_scale_and_add(1.0_dp, mo_coeff, coeffs(i), fm_tmp)
             END DO
-            !CALL cp_fm_release(csc)
             CALL cp_fm_release(fm_tmp)
             CALL reorthogonalize_vectors(qs_env, &
                                          v_matrix=mo_coeff, &
@@ -2923,14 +2915,11 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER :: matrix_struct, matrix_struct_new
       INTEGER :: n, k, lwork, info
       TYPE(cp_fm_type) :: m, u, vt
-      !REAL(KIND=dp), ALLOCATABLE, DIMENSION(:) :: s, work
       REAL(KIND=dp), POINTER, DIMENSION(:) :: s
 
       ! allocate the necessary temporary arrays
       NULLIFY (matrix_struct)
       CALL cp_fm_get_info(mo_coeff, nrow_global=n, ncol_global=k, matrix_struct=matrix_struct)
-
-
       CALL cp_fm_struct_create(matrix_struct_new, &
                                template_fmstruct=matrix_struct, &
                                nrow_global=k, &
@@ -2939,7 +2928,6 @@ CONTAINS
       CALL cp_fm_create(u, matrix_struct_new)
       CALL cp_fm_create(vt, matrix_struct_new)
       CALL cp_fm_struct_release(matrix_struct_new)
-
       NULLIFY(s)
       ALLOCATE(s(k))
 
@@ -2947,31 +2935,13 @@ CONTAINS
       CALL cp_dbcsr_sm_fm_multiply(overlap_ref, mo_coeff_ref, transf_mo_coeff, k)
       CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mo_coeff, transf_mo_coeff, 0.0_dp, m)
 
-      ! query the optimal size for the SVD workspace
-      !lwork = -1
-      !CALL dgesvd('A', 'A', k, k, m%local_data, k, s, u%local_data, k, &
-      !   vt%local_data, k, work, lwork, info)
-      !if (info /= 0) THEN
-      !   CPABORT("DGESVD memory query failed.")
-      !END IF
-      !lwork = work(1)
-      !DEALLOCATE(work)
-
-      !! do the svd
-      !ALLOCATE(work(lwork))
-      !CALL dgesvd('A', 'A', k, k, m%local_data, k, s, u%local_data, k, &
-      !   vt%local_data, k, work, lwork, info)
-      !if (info /= 0) THEN
-      !   CPABORT("DGESVD failed.")
-      !END IF
-
+      ! do the svd
       CALL cp_fm_svd(m, u, vt, s, info)
       if (info /= 0) THEN
          CPABORT("DGESVD failed.")
       END IF
 
-      ! compute the transformed coefficient matrix as
-      ! C' = C U V^T
+      ! compute the transformed coefficient matrix as C' = C U V^T
       CALL parallel_gemm('N', 'N', k, k, k, 1.0_dp, u, vt, 0.0_dp, m)
       CALL parallel_gemm('N', 'N', n, k, k, 1.0_dp, mo_coeff, m, 0.0_dp, transf_mo_coeff)
 
