@@ -1377,6 +1377,74 @@ CONTAINS
 
          DEALLOCATE (coeffs)
 
+      CASE (wfi_gext_qtr_nr)
+         IF (do_kpoints) THEN
+            CALL cp_abort(__LOCATION__, "GEXT and GEXT_QTR do not support yet kpoints")
+         END IF
+
+         ! figure out the actual number of vectors to use in the extrapolation:
+         nvec = MIN(wf_history%memory_depth, wf_history%snapshot_count)
+         IF (nvec >= wf_history%memory_depth) THEN
+            IF ((qs_env%scf_control%max_scf_hist /= 0) .AND. &
+                (qs_env%scf_control%eps_scf_hist /= 0)) THEN
+               qs_env%scf_control%max_scf = qs_env%scf_control%max_scf_hist
+               qs_env%scf_control%eps_scf = qs_env%scf_control%eps_scf_hist
+               qs_env%scf_control%outer_scf%have_scf = .FALSE.
+            ELSE IF (qs_env%scf_control%max_scf_hist /= 0) THEN
+               qs_env%scf_control%max_scf = qs_env%scf_control%max_scf_hist
+               qs_env%scf_control%outer_scf%have_scf = .FALSE.
+            ELSE IF (qs_env%scf_control%eps_scf_hist /= 0) THEN
+               qs_env%scf_control%eps_scf = qs_env%scf_control%eps_scf_hist
+            END IF
+         END IF
+         CPASSERT(nvec > 0)
+
+         ! get the coefficients for the fitting
+         ALLOCATE (coeffs(nvec))
+         NULLIFY (matrix_s)
+         CALL get_qs_env(qs_env, matrix_s=matrix_s)
+         CALL tr_fitting(wf_history, matrix_s(1)%matrix, coeffs, nvec, &
+                         1e-4_dp, io_unit, print_level)
+
+         my_orthogonal_wf = .TRUE.
+         CALL qs_rho_get(rho, rho_ao=rho_ao)
+         DO ispin = 1, SIZE(mos)
+
+            NULLIFY (mo_coeff, matrix_struct)
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
+            CALL cp_fm_get_info(mo_coeff, &
+                                nrow_global=n, &
+                                ncol_global=k, &
+                                matrix_struct=matrix_struct)
+            CALL cp_fm_create(fm_tmp, matrix_struct)
+
+            ! reference (previous) state
+            t1_state => wfi_get_snapshot(wf_history, wf_index=1)
+
+            ! do the linear combination of previous transformed coefficient
+            ! matrices
+            CALL cp_fm_set_all(mo_coeff, 0.0_dp)
+            CALL cp_fm_scale_and_add(1.0_dp, mo_coeff, coeffs(1), t1_state%wf(ispin))
+
+            DO i = 2, nvec
+               t0_state => wfi_get_snapshot(wf_history, wf_index=i)
+               CALL gext_orbital_transform(t0_state%wf(ispin), t1_state%wf(ispin), &
+                  t1_state%overlap, fm_tmp)
+               CALL cp_fm_scale_and_add(1.0_dp, mo_coeff, coeffs(i), fm_tmp)
+            END DO
+            CALL cp_fm_release(fm_tmp)
+            CALL reorthogonalize_vectors(qs_env, &
+                                         v_matrix=mo_coeff, &
+                                         n_col=k)
+            CALL calculate_density_matrix(mo_set=mos(ispin), &
+                                          density_matrix=rho_ao(ispin)%matrix)
+         END DO
+         CALL qs_rho_update_rho(rho, qs_env=qs_env)
+         CALL qs_ks_did_change(qs_env%ks_env, rho_changed=.TRUE.)
+
+
+         DEALLOCATE (coeffs)
+
       CASE default
          CALL cp_abort(__LOCATION__, &
                        "Unknown interpolation method: "// &
