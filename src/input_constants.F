@@ -257,7 +257,9 @@ MODULE input_constants
                                                wfi_gext_proj_nr = 10, &
                                                wfi_gext_proj_qtr_nr = 11, &
                                                wfi_gext_nr = 12, &
-                                               wfi_gext_qtr_nr = 13
+                                               wfi_gext_qtr_nr = 13, &
+                                               wfi_double_gext_nr = 14, &
+                                               wfi_double_gext_qtr_nr = 15
 
    INTEGER, PARAMETER, PUBLIC               :: do_method_undef = 0, &
                                                do_method_gapw = 1, &
